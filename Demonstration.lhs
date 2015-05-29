@@ -24,8 +24,10 @@ bunch of noise.
 > import Control.Monad.Trans.Class
 > import Control.Monad.Trans.Identity
 > import Control.Monad.Trans.Reader
+> import Data.Coerce
 
-# A motivating problem
+A motivating problem
+--------------------
 
 Here are two functors and their free monads which define DSLs for
 addition of integers, and for logging.
@@ -83,7 +85,8 @@ and also log strings. We have interpreters for each of these; it would be nice
 to use them to define an interpreter for the composite.
 This text shows one way to achieve this.
 
-# A solution
+A solution
+----------
 
 To begin, we need the tools to define the monad composite of `Plus` and `Log`.
 The functor sum allows us to build new functors from old, and free monads on
@@ -130,13 +133,16 @@ just like a construction from
 > instance (InjectSum f h) => InjectSum f (g :+: h) where
 >     inject = SumR . inject
 >
+> instance (InjectSum f h, InjectSum g h) => InjectSum (f :+: g) h where
+>   inject term = case term of
+>       SumL x -> inject x
+>       SumR x -> inject x
+>
 > injectF_ :: (Functor g, InjectSum f g) => f a -> Free g a
 > injectF_ = liftF . inject
 >
 > injectF :: (Functor f, Functor g, InjectSum f g) => Free f a -> Free g a
-> injectF term = case term of
->     Pure a -> Pure a
->     Free fterm -> Free (inject (fmap injectF fterm))
+> injectF = hoistFree inject
 
 Now we can tell GHC of our composite monad, `LogPlus`, and write terms in it.
 
@@ -222,35 +228,21 @@ demonstration.
 > instance
 >     ( FInterpreter n b g
 >     , FInterpreter m (n b) f
->     , Monad b
->     , Monad (n b)
->     , Monad (m (n b))
 >     , FTrans m
 >     ) => FInterpreter (m :&: n) b (f :+: g)
 >   where
 >     finterpret term = case term of
->         SumL left -> do
->             let term' = fmap runTrans left
->             Trans (finterpret term')
->         SumR right -> do 
->             -- This is where FTrans is needed.
->             -- We can strip off m inside the functor g, interpret using
->             -- FInterpreter n b g, then return to m :&: n using inFTrans.
->             outR <- outFTrans
->             let term' = fmap outR right
->             inFTrans (finterpret term')
+>         SumL left -> Trans . finterpret $ fmap runTrans left
+>         SumR right -> Trans . transInterp finterpret $ fmap runTrans right
 >
 > class FTrans (m :: (* -> *) -> * -> *) where
->     outFTrans :: (Monad (m (n b)), Monad (n b)) => (m :&: n) b ((m :&: n) b t -> n b t)
->     inFTrans :: (Monad (m (n b))) => n b t -> (m :&: n) b t
+>     transInterp :: Functor f => Interpreter f n -> Interpreter f (m n)
 >
 > instance FTrans IdentityT where
->     outFTrans = Trans (IdentityT (return (runIdentityT . runTrans)))
->     inFTrans = Trans . IdentityT
+>     transInterp interp = IdentityT . interp . fmap runIdentityT
 >
 > instance FTrans (ReaderT r) where
->     outFTrans = Trans (ReaderT (\r -> return (\x -> runReaderT (runTrans x) r)))
->     inFTrans = Trans . ReaderT . const
+>     transInterp interp term = ReaderT $ \r -> interp (fmap (\x -> runReaderT x r) term)
 
 With `FInterpreter` and `FTrans` instances for our interpreters, we have
 enough machinery to give a value for `stdoutLogAndModularPlus`.
@@ -261,13 +253,11 @@ enough machinery to give a value for `stdoutLogAndModularPlus`.
 > instance MonadIO m => FInterpreter StdoutLogInterpreter m (LogF String) where
 >     finterpret = stdoutLog
 >
-> instance FTrans (ModularPlusInterpreter) where
->     outFTrans = Trans (MPI (ReaderT (\r -> return (\x -> runReaderT (runMPI (runTrans x)) r))))
->     inFTrans = Trans . MPI . ReaderT . const
+> instance FTrans ModularPlusInterpreter where
+>     transInterp trans = MPI . transInterp trans . fmap runMPI
 >
-> instance FTrans (StdoutLogInterpreter) where
->     outFTrans = Trans (SLI (IdentityT (return (runIdentityT . runSLI . runTrans))))
->     inFTrans = Trans . SLI . IdentityT
+> instance FTrans StdoutLogInterpreter where
+>     transInterp trans = SLI . transInterp trans . fmap runSLI
 >
 > stdoutLogAndModularPlus = finterpret
 
