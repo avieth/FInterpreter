@@ -39,9 +39,8 @@ module Control.Monad.FInterpreter (
 import Data.Functor.Sum
 import Control.Applicative
 import Control.Monad
-import Control.Monad.Free
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
+import Control.Monad.Free
 import Control.Monad.Trans.Identity
 import Control.Monad.Trans.Reader
 
@@ -59,6 +58,11 @@ instance InjectSum f (f :+: h) where
 
 instance (InjectSum f h) => InjectSum f (g :+: h) where
     inject = InR . inject
+
+instance (InjectSum f h, InjectSum g h) => InjectSum (f :+: g) h where
+    inject term = case term of
+        InL x -> inject x
+        InR x -> inject x
 
 injectF_ :: (Functor g, InjectSum f g) => f a -> Free g a
 injectF_ = liftF . inject
