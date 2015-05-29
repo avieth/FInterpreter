@@ -43,6 +43,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Free
 import Control.Monad.Trans.Identity
 import Control.Monad.Trans.Reader
+import Control.Monad.Trans.State
 
 infixr 8 :+:
 type a :+: b = Sum a b
@@ -68,9 +69,7 @@ injectF_ :: (Functor g, InjectSum f g) => f a -> Free g a
 injectF_ = liftF . inject
 
 injectF :: (Functor f, Functor g, InjectSum f g) => Free f a -> Free g a
-injectF term = case term of
-    Pure a -> Pure a
-    Free fterm -> Free (inject (fmap injectF fterm))
+injectF = hoistFree inject
 
 infixr 8 :&:
 type m :&: n = Trans m n
@@ -84,32 +83,24 @@ type Interpreter f m = forall a . f (m a) -> m a
 class Functor f => FInterpreter (m :: (* -> *) -> * -> *) (b :: * -> *) (f :: * -> *) where
     finterpret :: Interpreter f (m b)
 
+class FTrans (m :: (* -> *) -> * -> *) where
+    transInterp :: Functor f => Interpreter f n -> Interpreter f (m n)
+
+instance FTrans IdentityT where
+    transInterp interp = IdentityT . interp . fmap runIdentityT
+
+instance FTrans (ReaderT r) where
+    transInterp interp term = ReaderT $ \r -> interp (fmap (\x -> runReaderT x r) term)
+
+instance FTrans (StateT s) where
+    transInterp interp term = StateT $ \s -> interp (fmap (\x -> runStateT x s) term)
+
 instance
     ( FInterpreter n b g
     , FInterpreter m (n b) f
-    , Monad b
-    , Monad (n b)
-    , Monad (m (n b))
     , FTrans m
     ) => FInterpreter (m :&: n) b (f :+: g)
   where
     finterpret term = case term of
-        InL left -> do
-            let term' = fmap runTrans left
-            Trans (finterpret term')
-        InR right -> do 
-            outR <- outFTrans
-            let term' = fmap outR right
-            inFTrans (finterpret term')
-
-class FTrans (m :: (* -> *) -> * -> *) where
-    outFTrans :: (Monad (m (n b)), Monad (n b)) => (m :&: n) b ((m :&: n) b t -> n b t)
-    inFTrans :: (Monad (m (n b))) => n b t -> (m :&: n) b t
-
-instance FTrans IdentityT where
-    outFTrans = Trans (IdentityT (return (runIdentityT . runTrans)))
-    inFTrans = Trans . IdentityT
-
-instance FTrans (ReaderT r) where
-    outFTrans = Trans (ReaderT (\r -> return (\x -> runReaderT (runTrans x) r)))
-    inFTrans = Trans . ReaderT . const
+        InL left -> Trans . finterpret $ fmap runTrans left
+        InR right -> Trans . transInterp finterpret $ fmap runTrans right
