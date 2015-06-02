@@ -19,6 +19,10 @@ Portability : non-portable (GHC only)
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Control.Monad.FInterpreter (
 
@@ -36,6 +40,7 @@ module Control.Monad.FInterpreter (
 
   ) where
 
+import Data.Proxy
 import Data.Functor.Sum
 import Control.Applicative
 import Control.Monad
@@ -48,28 +53,59 @@ import Control.Monad.Trans.State
 infixr 8 :+:
 type a :+: b = Sum a b
 
-class InjectSum f g where
-    inject :: f a -> g a
+class InjectFunctorSingle f g where
+    injectFunctorSingle :: f a -> g a
 
-instance InjectSum f f where
-    inject = id
+instance InjectFunctorSingle f f where
+    injectFunctorSingle = id
 
-instance InjectSum f (f :+: h) where
-    inject = InL
+instance InjectFunctorSingle f (f :+: h) where
+    injectFunctorSingle = InL
 
-instance (InjectSum f h) => InjectSum f (g :+: h) where
-    inject = InR . inject
+instance (InjectFunctorSingle f h) => InjectFunctorSingle f (g :+: h) where
+    injectFunctorSingle = InR . injectFunctorSingle
 
-instance (InjectSum f h, InjectSum g h) => InjectSum (f :+: g) h where
-    inject term = case term of
-        InL x -> inject x
-        InR x -> inject x
+class InjectFunctorMultiple f g where
+    injectFunctorMultiple :: f a -> g a
 
-injectF_ :: (Functor g, InjectSum f g) => f a -> Free g a
-injectF_ = liftF . inject
+instance InjectFunctorSingle f h => InjectFunctorMultiple f h where
+    injectFunctorMultiple = injectFunctorSingle
 
-injectF :: (Functor f, Functor g, InjectSum f g) => Free f a -> Free g a
-injectF = hoistFree inject
+instance
+    ( InjectFunctorSingle f h
+    , InjectFunctorMultiple g h
+    ) => InjectFunctorMultiple (f :+: g) h
+  where
+    injectFunctorMultiple term = case term of
+        InL x -> injectFunctorSingle x
+        InR x -> injectFunctorMultiple x
+
+data FSumType = FSumSingle | FSumMultiple
+
+type family FSumIndicator (f :: * -> *) :: FSumType where
+    FSumIndicator (g :+: h) = FSumMultiple
+    FSumIndicator g = FSumSingle
+
+class InjectFunctor' (indicator :: FSumType) f g where
+    injectFunctor' :: Proxy indicator -> f a -> g a
+
+instance InjectFunctorSingle f g => InjectFunctor' FSumSingle f g where
+    injectFunctor' _ = injectFunctorSingle
+
+instance InjectFunctorMultiple f g => InjectFunctor' FSumMultiple f g where
+    injectFunctor' _ = injectFunctorMultiple
+
+class InjectFunctor f g where
+    injectFunctor :: f a -> g a
+
+instance InjectFunctor' (FSumIndicator f) f g => InjectFunctor f g where
+    injectFunctor = injectFunctor' (Proxy :: Proxy (FSumIndicator f))
+
+injectF_ :: (Functor g, InjectFunctor f g) => f a -> Free g a
+injectF_ = liftF . injectFunctor
+
+injectF :: (Functor f, Functor g, InjectFunctor f g) => Free f a -> Free g a
+injectF = hoistFree injectFunctor
 
 infixr 8 :&:
 type m :&: n = Trans m n
