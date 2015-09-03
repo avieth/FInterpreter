@@ -1,8 +1,8 @@
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 import Control.Monad.FInterpreter
-import Control.Monad.Free
+import Control.Monad.Trans.Free
 
 data FunctorA a = A
 
@@ -19,7 +19,7 @@ instance Functor FunctorB where
 instance Functor FunctorC where
     fmap f C = C
 
-injectionExamples :: Free (FunctorA :+: FunctorB :+: FunctorC) ()
+injectionExamples :: forall m . Monad m => FreeT (FunctorA :+: FunctorB :+: FunctorC) m ()
 injectionExamples = do
     injectF termA
     injectF termB
@@ -34,27 +34,27 @@ injectionExamples = do
     injectF termACB
     injectF termBAC
   where
-    termA :: (Free FunctorA) ()
+    termA :: (FreeT FunctorA m) ()
     termA = undefined
-    termB :: (Free FunctorB) ()
+    termB :: (FreeT FunctorB m) ()
     termB = undefined
-    termC :: (Free FunctorC) ()
+    termC :: (FreeT FunctorC m) ()
     termC = undefined
-    termAB :: (Free (FunctorA :+: FunctorB)) ()
+    termAB :: (FreeT (FunctorA :+: FunctorB) m) ()
     termAB = undefined
-    termAC :: (Free (FunctorA :+: FunctorC)) ()
+    termAC :: (FreeT (FunctorA :+: FunctorC) m) ()
     termAC = undefined
-    termBC :: (Free (FunctorB :+: FunctorC)) ()
+    termBC :: (FreeT (FunctorB :+: FunctorC) m) ()
     termBC = undefined
-    termCB :: (Free (FunctorC :+: FunctorB)) ()
+    termCB :: (FreeT (FunctorC :+: FunctorB) m) ()
     termCB = undefined
-    termCA :: (Free (FunctorC :+: FunctorA)) ()
+    termCA :: (FreeT (FunctorC :+: FunctorA) m) ()
     termCA = undefined
-    termBA :: (Free (FunctorB :+: FunctorA)) ()
+    termBA :: (FreeT (FunctorB :+: FunctorA) m) ()
     termBA = undefined
-    termABC :: (Free (FunctorA :+: FunctorB :+: FunctorC)) ()
+    termABC :: (FreeT (FunctorA :+: FunctorB :+: FunctorC) m) ()
     termABC = undefined
-    termACB :: (Free (FunctorA :+: FunctorC :+: FunctorB)) ()
+    termACB :: (FreeT (FunctorA :+: FunctorC :+: FunctorB) m) ()
     termACB = undefined
-    termBAC :: (Free (FunctorB :+: FunctorA :+: FunctorC)) ()
+    termBAC :: (FreeT (FunctorB :+: FunctorA :+: FunctorC) m) ()
     termBAC = undefined
